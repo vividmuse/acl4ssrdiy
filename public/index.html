@@ -332,15 +332,27 @@
                 return;
             }
 
+            // 将多行订阅拆分为数组，使用 | 拼接后再编码，避免换行导致 subconverter 400
+            const subscriptionList = subscriptionUrl
+                .split(/\r?\n/)
+                .map(s => s.trim())
+                .filter(Boolean);
+
+            const normalizedSubscription = subscriptionList.join('|');
+
             // URL 编码订阅地址和配置地址
-            const encodedSubscription = encodeURIComponent(subscriptionUrl);
+            const encodedSubscription = encodeURIComponent(normalizedSubscription);
             const encodedConfig = encodeURIComponent(configUrl);
 
-            // 构建 subconverter URL（不编码，因为是 URL 的一部分）
-            const subUrl = `${subconverterUrl}/sub?target=clash&url=${encodedSubscription}&config=${encodedConfig}`;
+            // 规范化基础地址，避免出现重复的斜杠
+            const converterBase = converterUrl.replace(/\/+$/, '');
+            const subconverterBase = subconverterUrl.replace(/\/+$/, '');
+
+            // 构建 subconverter URL，最终会整体 encode 避免参数被拆分
+            const subUrl = `${subconverterBase}/sub?target=clash&url=${encodedSubscription}&config=${encodedConfig}`;
 
             // 构建最终的转换链接
-            const finalUrl = `${converterUrl}/convert?url=${subUrl}`;
+            const finalUrl = `${converterBase}/convert?url=${encodeURIComponent(subUrl)}`;
 
             // 显示结果
             document.getElementById('resultUrl').textContent = finalUrl;
@@ -351,28 +363,36 @@
         }
 
         function copyToClipboard() {
-            const resultUrl = document.getElementById('resultUrl').textContent;
+            const resultUrl = document.getElementById('resultUrl').textContent.trim();
             const copyBtn = document.querySelector('.copy-btn');
 
-            navigator.clipboard.writeText(resultUrl).then(function() {
-                copyBtn.textContent = '✅ 已复制！';
-                copyBtn.classList.add('copied');
-
-                setTimeout(function() {
-                    copyBtn.textContent = '📋 复制链接';
-                    copyBtn.classList.remove('copied');
-                }, 2000);
-            }).catch(function(err) {
-                // 降级方案：使用传统方法
+            const fallbackCopy = () => {
                 const textArea = document.createElement('textarea');
                 textArea.value = resultUrl;
                 textArea.style.position = 'fixed';
                 textArea.style.left = '-999999px';
                 document.body.appendChild(textArea);
+                textArea.focus();
                 textArea.select();
 
                 try {
                     document.execCommand('copy');
+                    copyBtn.textContent = '✅ 已复制！';
+                    copyBtn.classList.add('copied');
+                } catch (err) {
+                    alert('❌ 复制失败，请手动复制');
+                }
+
+                document.body.removeChild(textArea);
+
+                setTimeout(function() {
+                    copyBtn.textContent = '📋 复制链接';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            };
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(resultUrl).then(function() {
                     copyBtn.textContent = '✅ 已复制！';
                     copyBtn.classList.add('copied');
 
@@ -380,12 +400,12 @@
                         copyBtn.textContent = '📋 复制链接';
                         copyBtn.classList.remove('copied');
                     }, 2000);
-                } catch (err) {
-                    alert('❌ 复制失败，请手动复制');
-                }
-
-                document.body.removeChild(textArea);
-            });
+                }).catch(function() {
+                    fallbackCopy();
+                });
+            } else {
+                fallbackCopy();
+            }
         }
 
         function resetForm() {

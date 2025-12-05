@@ -38,25 +38,133 @@ app.use(express.static(path.join(__dirname, 'public')));
 // 增加请求超时时间（默认 2 分钟，可通过环境变量配置）
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '120000'); // 毫秒
 
+/**
+ * 从原始查询字符串中提取并解码 subconverter URL
+ * 支持 url 参数被整体 encode 后传入，也支持 url 不是第一个参数的情况
+ */
+function extractTargetUrl(req) {
+    const queryString = req.url.split('?')[1] || '';
+
+    if (!queryString) {
+        return null;
+    }
+
+    const urlIndex = queryString.indexOf('url=');
+
+    if (urlIndex === -1) {
+        return null;
+    }
+
+    const afterUrl = queryString.substring(urlIndex + 4);
+    const formatIndex = afterUrl.indexOf('&format=');
+    const rawUrl = formatIndex !== -1 ? afterUrl.substring(0, formatIndex) : afterUrl;
+
+    // 仅在整体被 encode 的情况下才解码，避免把内部的 url/config 再次解码
+    const looksFullyEncoded = rawUrl.startsWith('http%3A') || rawUrl.startsWith('https%3A');
+
+    if (!looksFullyEncoded) {
+        return rawUrl;
+    }
+
+    try {
+        return decodeURIComponent(rawUrl);
+    } catch (err) {
+        console.warn('[Converter] URL 解码失败，使用原始值:', err.message);
+        return rawUrl;
+    }
+}
+
+/**
+ * 规范化 subconverter URL，清理订阅参数里的换行，避免后端返回 400
+ */
+function normalizeSubconverterUrl(targetUrl) {
+    try {
+        const parsed = new URL(targetUrl);
+
+        const subParam = parsed.searchParams.get('url');
+        if (subParam) {
+            // 将换行替换为管道符，兼容多机场订阅
+            const cleaned = subParam.replace(/[\r\n]+/g, '|');
+            if (cleaned !== subParam) {
+                parsed.searchParams.set('url', cleaned);
+            }
+        }
+
+        const configParam = parsed.searchParams.get('config');
+        if (configParam) {
+            // 去掉意外的首尾空白
+            const trimmed = configParam.trim();
+            if (trimmed !== configParam) {
+                parsed.searchParams.set('config', trimmed);
+            }
+        }
+
+        return parsed.toString();
+    } catch (err) {
+        console.warn('[Converter] 规范化 subconverter URL 失败，使用原值:', err.message);
+        return targetUrl;
+    }
+}
+
+function sendYaml(res, content) {
+    res.set('Content-Type', 'text/yaml; charset=utf-8');
+    return res.send(content);
+}
+
 // ========== 核心转换函数 ==========
 
 /**
  * 修改节点组内节点 dialer-proxy 代理并将 relay 节点组替换为新的节点组
  */
 function updateDialerProxyGroup(config, groupMappings) {
+    if (!config.proxies) {
+        config.proxies = [];
+    }
+
+    const findProxyByName = (name) => (config.proxies || []).find(p => p.name === name);
+
+    const ensureProxyWithDialer = (proxyName, dialerProxyName) => {
+        const existing = findProxyByName(proxyName);
+
+        // 如果不存在原始节点，直接返回
+        if (!existing) {
+            return { proxyName, proxy: null };
+        }
+
+        // 如果还没有设置或与目标一致，直接复用
+        if (!existing["dialer-proxy"] || existing["dialer-proxy"] === dialerProxyName) {
+            existing["dialer-proxy"] = dialerProxyName;
+            return { proxyName, proxy: existing };
+        }
+
+        // 已有不同的 dialer-proxy，克隆一个新节点避免冲突
+        const baseName = `${proxyName} (${dialerProxyName})`;
+        let newName = baseName;
+        let counter = 1;
+        while (findProxyByName(newName)) {
+            newName = `${baseName}-${counter++}`;
+        }
+
+        const cloned = { ...existing, name: newName, ["dialer-proxy"]: dialerProxyName };
+        config.proxies.push(cloned);
+        return { proxyName: newName, proxy: cloned };
+    };
+
     groupMappings.forEach(([groupName, dialerProxyName, targetGroupName]) => {
         const group = config["proxy-groups"].find(group => group.name === groupName);
         if (group) {
             console.log(`[DialerProxy] 处理组: ${groupName}, 设置 dialer-proxy = ${dialerProxyName}`);
 
-            group.proxies.forEach(proxyName => {
-                if (proxyName !== "DIRECT") {
-                    const proxy = (config.proxies || []).find(p => p.name === proxyName);
-                    if (proxy) {
-                        proxy["dialer-proxy"] = dialerProxyName;
-                        console.log(`[DialerProxy]   ✓ ${proxyName} -> dialer-proxy: ${dialerProxyName}`);
-                    }
+            group.proxies = group.proxies.map(proxyName => {
+                if (proxyName === "DIRECT") return proxyName;
+
+                const { proxyName: newName, proxy } = ensureProxyWithDialer(proxyName, dialerProxyName);
+                if (proxy) {
+                    console.log(`[DialerProxy]   ✓ ${proxyName} -> ${newName} dialer-proxy: ${dialerProxyName}`);
+                } else {
+                    console.log(`[DialerProxy]   ⚠️ 未找到节点 ${proxyName}`);
                 }
+                return newName;
             });
 
             if (group.proxies.length > 0) {
@@ -144,6 +252,7 @@ function fetchConfig(url, retries = 2) {
         const request = client.get(url, {
             timeout: REQUEST_TIMEOUT
         }, (res) => {
+            res.setEncoding('utf8');
             let data = '';
             let receivedBytes = 0;
 
@@ -159,6 +268,7 @@ function fetchConfig(url, retries = 2) {
 
             res.on('end', () => {
                 console.log(`[Fetch] 完成: 总共接收 ${(receivedBytes / 1024).toFixed(2)} KB`);
+                const bodySnippet = data.substring(0, 200);
 
                 if (res.statusCode === 200) {
                     resolve(data);
@@ -173,7 +283,7 @@ function fetchConfig(url, retries = 2) {
                         reject(new Error(`Too many redirects`));
                     }
                 } else {
-                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage || ''} ${bodySnippet}`.trim()));
                 }
             });
         });
@@ -253,7 +363,7 @@ app.post('/convert', async (req, res) => {
         if (outputFormat === 'json') {
             res.json(converted);
         } else {
-            res.type('text/yaml').send(yaml.dump(converted, {
+            sendYaml(res, yaml.dump(converted, {
                 lineWidth: -1,
                 noRefs: true
             }));
@@ -274,37 +384,17 @@ app.post('/convert', async (req, res) => {
  */
 app.get('/convert', async (req, res) => {
     try {
-        // 获取完整的查询字符串
-        const queryString = req.url.split('?')[1];
+        let url = extractTargetUrl(req);
 
-        if (!queryString) {
-            return res.status(400).json({
-                error: 'Missing url parameter',
-                usage: 'GET /convert?url=http://subconverter/sub?target=clash&url=...'
-            });
-        }
-
-        // 手动解析 url 参数
-        // 从 url= 开始，提取直到 &format= 或字符串结束的所有内容
-        let url;
-        if (queryString.startsWith('url=')) {
-            // 查找 &format= 的位置
-            const formatIndex = queryString.indexOf('&format=');
-            if (formatIndex !== -1) {
-                // 提取 url= 到 &format= 之间的内容
-                url = queryString.substring(4, formatIndex);
-            } else {
-                // 提取 url= 到字符串结束的所有内容
-                url = queryString.substring(4);
-            }
-        } else {
+        if (!url) {
             return res.status(400).json({
                 error: 'Missing url parameter',
                 usage: 'GET /convert?url=http://subconverter/sub?target=clash&url=...',
-                note: 'url parameter must be the first parameter',
-                debug: `Query string: ${queryString}`
+                note: '如果包含多个参数，请把整个 subconverter 链接用 encodeURIComponent 包裹后再传入',
             });
         }
+
+        url = normalizeSubconverterUrl(url);
 
         console.log(`[Converter] 从 URL 获取配置: ${url}`);
 
@@ -323,7 +413,7 @@ app.get('/convert', async (req, res) => {
         if (outputFormat === 'json') {
             res.json(converted);
         } else {
-            res.type('text/yaml').send(yaml.dump(converted, {
+            sendYaml(res, yaml.dump(converted, {
                 lineWidth: -1,
                 noRefs: true
             }));

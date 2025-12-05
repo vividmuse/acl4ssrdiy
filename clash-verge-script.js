@@ -41,19 +41,54 @@ function main(config, profileName) {
 //   1. 为落地节点1、落地节点2 添加 dialer-proxy = 中转节点
 //   2. 将 relay 组改为 select 组，只保留落地节点组
 function updateDialerProxyGroup(config, groupMappings) {
+    if (!config.proxies) {
+        config.proxies = [];
+    }
+
+    const findProxyByName = (name) => (config.proxies || []).find(p => p.name === name);
+
+    const ensureProxyWithDialer = (proxyName, dialerProxyName) => {
+        const existing = findProxyByName(proxyName);
+
+        // 如果不存在原始节点，直接返回
+        if (!existing) {
+            return { proxyName, proxy: null };
+        }
+
+        // 如果还没有设置或与目标一致，直接复用
+        if (!existing["dialer-proxy"] || existing["dialer-proxy"] === dialerProxyName) {
+            existing["dialer-proxy"] = dialerProxyName;
+            return { proxyName, proxy: existing };
+        }
+
+        // 已有不同的 dialer-proxy，克隆一个新节点避免冲突
+        const baseName = `${proxyName} (${dialerProxyName})`;
+        let newName = baseName;
+        let counter = 1;
+        while (findProxyByName(newName)) {
+            newName = `${baseName}-${counter++}`;
+        }
+
+        const cloned = { ...existing, name: newName, ["dialer-proxy"]: dialerProxyName };
+        config.proxies.push(cloned);
+        return { proxyName: newName, proxy: cloned };
+    };
+
     groupMappings.forEach(([groupName, dialerProxyName, targetGroupName]) => {
         const group = config["proxy-groups"].find(group => group.name === groupName);
         if (group) {
             console.log(`[DialerProxy] 处理组: ${groupName}, 设置 dialer-proxy = ${dialerProxyName}`);
 
-            group.proxies.forEach(proxyName => {
-                if (proxyName !== "DIRECT") {
-                    const proxy = (config.proxies || []).find(p => p.name === proxyName);
-                    if (proxy) {
-                        proxy["dialer-proxy"] = dialerProxyName;
-                        console.log(`[DialerProxy]   ✓ ${proxyName} -> dialer-proxy: ${dialerProxyName}`);
-                    }
+            group.proxies = group.proxies.map(proxyName => {
+                if (proxyName === "DIRECT") return proxyName;
+
+                const { proxyName: newName, proxy } = ensureProxyWithDialer(proxyName, dialerProxyName);
+                if (proxy) {
+                    console.log(`[DialerProxy]   ✓ ${proxyName} -> ${newName} dialer-proxy: ${dialerProxyName}`);
+                } else {
+                    console.log(`[DialerProxy]   ⚠️ 未找到节点 ${proxyName}`);
                 }
+                return newName;
             });
 
             if (group.proxies.length > 0) {
