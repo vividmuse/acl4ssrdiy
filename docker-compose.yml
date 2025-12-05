@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # Subconverter 服务
+  subconverter:
+    image: tindy2013/subconverter:latest
+    container_name: subconverter
+    restart: unless-stopped
+    ports:
+      - "25500:25500"
+    volumes:
+      - ./pref.yaml:/base/pref.yaml
+      - ./acl4ssrdiy.ini:/base/profiles/acl4ssrdiy.ini
+    networks:
+      - proxy-network
+
+  # Relay 转换服务
+  relay-converter:
+    build: .
+    container_name: relay-converter
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    networks:
+      - proxy-network
+    depends_on:
+      - subconverter
+
+networks:
+  proxy-network:
+    driver: bridge

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relay to Dialer-Proxy 转换服务</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .result-box {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-box h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .result-url {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            word-break: break-all;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            color: #333;
+            border: 1px solid #e0e0e0;
+            margin-bottom: 10px;
+        }
+
+        .copy-btn {
+            width: 100%;
+            padding: 10px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #218838;
+        }
+
+        .copy-btn.copied {
+            background: #20c997;
+        }
+
+        .alert {
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+
+        .example {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+
+        .example code {
+            background: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            color: #e83e8c;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 12px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 Relay to Dialer-Proxy 转换服务</h1>
+            <p>自动生成正确的订阅链接 | v1.0.2</p>
+        </div>
+
+        <div class="content">
+            <div class="alert alert-info">
+                💡 <strong>提示：</strong>输入你的订阅信息，自动生成正确格式的转换链接
+            </div>
+
+            <form id="converterForm">
+                <div class="form-group">
+                    <label for="converterUrl">转换服务地址</label>
+                    <input type="text" id="converterUrl" placeholder="http://192.168.1.1:3000" required>
+                    <small>你的 relay-converter 服务地址（默认端口 3000）</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="subconverterUrl">Subconverter 地址</label>
+                    <input type="text" id="subconverterUrl" placeholder="http://192.168.1.1:25500" required>
+                    <small>你的 subconverter 服务地址（默认端口 25500）</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="configUrl">配置文件 URL</label>
+                    <input type="text" id="configUrl" placeholder="https://raw.githubusercontent.com/你的用户名/acl4ssrdiy/main/acl4ssrdiy.ini" required>
+                    <small>你的 subconverter 配置文件 URL</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="subscriptionUrl">机场订阅地址</label>
+                    <textarea id="subscriptionUrl" placeholder="https://your-airport.com/api/v1/client/subscribe?token=YOUR_TOKEN" required></textarea>
+                    <small>你的机场原始订阅地址（支持多行，一行一个）</small>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" class="btn-primary">🚀 生成订阅链接</button>
+                    <button type="button" class="btn-secondary" onclick="resetForm()">🔄 重置</button>
+                </div>
+            </form>
+
+            <div id="resultSection" style="display: none;">
+                <div class="result-box">
+                    <h3>✅ 生成的订阅链接</h3>
+                    <div class="result-url" id="resultUrl"></div>
+                    <button class="copy-btn" onclick="copyToClipboard()">📋 复制链接</button>
+                </div>
+
+                <div class="alert alert-warning" style="margin-top: 20px;">
+                    ⚠️ <strong>重要：</strong>请在 Neko 或 Clash 客户端中使用上述链接作为订阅地址
+                </div>
+            </div>
+
+            <div class="example">
+                <strong>📖 使用说明：</strong><br>
+                1. 填写你的服务器 IP 和端口<br>
+                2. 输入配置文件和订阅地址<br>
+                3. 点击生成按钮获取转换后的链接<br>
+                4. 将生成的链接复制到 Neko 的订阅设置中
+            </div>
+        </div>
+
+        <div class="footer">
+            Based on <a href="https://linux.do/t/topic/156436" target="_blank" style="color: #667eea;">remoteman@linux.do</a> |
+            Powered by <a href="https://github.com" target="_blank" style="color: #667eea;">Claude Code</a>
+        </div>
+    </div>
+
+    <script>
+        // 页面加载时自动填充默认值
+        document.addEventListener('DOMContentLoaded', function() {
+            // 尝试自动检测当前主机
+            const currentHost = window.location.hostname;
+            const isLocalhost = currentHost === 'localhost' || currentHost === '127.0.0.1';
+
+            if (!isLocalhost) {
+                document.getElementById('converterUrl').value = `http://${currentHost}:3000`;
+                document.getElementById('subconverterUrl').value = `http://${currentHost}:25500`;
+            } else {
+                document.getElementById('converterUrl').value = 'http://localhost:3000';
+                document.getElementById('subconverterUrl').value = 'http://localhost:25500';
+            }
+        });
+
+        document.getElementById('converterForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            generateUrl();
+        });
+
+        function generateUrl() {
+            const converterUrl = document.getElementById('converterUrl').value.trim();
+            const subconverterUrl = document.getElementById('subconverterUrl').value.trim();
+            const configUrl = document.getElementById('configUrl').value.trim();
+            const subscriptionUrl = document.getElementById('subscriptionUrl').value.trim();
+
+            // 验证输入
+            if (!converterUrl || !subconverterUrl || !configUrl || !subscriptionUrl) {
+                alert('❌ 请填写所有必填字段！');
+                return;
+            }
+
+            // URL 编码订阅地址和配置地址
+            const encodedSubscription = encodeURIComponent(subscriptionUrl);
+            const encodedConfig = encodeURIComponent(configUrl);
+
+            // 构建 subconverter URL（不编码，因为是 URL 的一部分）
+            const subUrl = `${subconverterUrl}/sub?target=clash&url=${encodedSubscription}&config=${encodedConfig}`;
+
+            // 构建最终的转换链接
+            const finalUrl = `${converterUrl}/convert?url=${subUrl}`;
+
+            // 显示结果
+            document.getElementById('resultUrl').textContent = finalUrl;
+            document.getElementById('resultSection').style.display = 'block';
+
+            // 滚动到结果
+            document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function copyToClipboard() {
+            const resultUrl = document.getElementById('resultUrl').textContent;
+            const copyBtn = document.querySelector('.copy-btn');
+
+            navigator.clipboard.writeText(resultUrl).then(function() {
+                copyBtn.textContent = '✅ 已复制！';
+                copyBtn.classList.add('copied');
+
+                setTimeout(function() {
+                    copyBtn.textContent = '📋 复制链接';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            }).catch(function(err) {
+                // 降级方案：使用传统方法
+                const textArea = document.createElement('textarea');
+                textArea.value = resultUrl;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+
+                try {
+                    document.execCommand('copy');
+                    copyBtn.textContent = '✅ 已复制！';
+                    copyBtn.classList.add('copied');
+
+                    setTimeout(function() {
+                        copyBtn.textContent = '📋 复制链接';
+                        copyBtn.classList.remove('copied');
+                    }, 2000);
+                } catch (err) {
+                    alert('❌ 复制失败，请手动复制');
+                }
+
+                document.body.removeChild(textArea);
+            });
+        }
+
+        function resetForm() {
+            document.getElementById('converterForm').reset();
+            document.getElementById('resultSection').style.display = 'none';
+
+            // 重新填充默认值
+            const currentHost = window.location.hostname;
+            const isLocalhost = currentHost === 'localhost' || currentHost === '127.0.0.1';
+
+            if (!isLocalhost) {
+                document.getElementById('converterUrl').value = `http://${currentHost}:3000`;
+                document.getElementById('subconverterUrl').value = `http://${currentHost}:25500`;
+            } else {
+                document.getElementById('converterUrl').value = 'http://localhost:3000';
+                document.getElementById('subconverterUrl').value = 'http://localhost:25500';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "relay-converter-service",
+  "version": "1.0.0",
+  "description": "Convert Clash relay config to dialer-proxy format",
+  "main": "relay-converter-service.js",
+  "scripts": {
+    "start": "node relay-converter-service.js",
+    "dev": "NODE_ENV=development nodemon relay-converter-service.js"
+  },
+  "keywords": [
+    "clash",
+    "relay",
+    "dialer-proxy",
+    "converter"
+  ],
+  "author": "Based on remoteman@linux.do",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
