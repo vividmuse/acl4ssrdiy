@@ -190,6 +190,62 @@
             border-left: 4px solid #ffc107;
         }
 
+        .parse-section {
+            background: #f0f4ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px dashed #667eea;
+        }
+
+        .parse-section .form-group {
+            margin-bottom: 15px;
+        }
+
+        .btn-parse {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-parse:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(23, 162, 184, 0.4);
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 25px 0;
+            color: #666;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .divider span {
+            padding: 0 15px;
+            font-size: 14px;
+            color: #999;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+
         .example {
             background: #f8f9fa;
             padding: 15px;
@@ -233,12 +289,26 @@
     <div class="container">
         <div class="header">
             <h1>🔄 Relay to Dialer-Proxy 转换服务</h1>
-            <p>自动生成正确的订阅链接 | v1.0.2</p>
+            <p>自动生成正确的订阅链接 | v1.0.3</p>
         </div>
 
         <div class="content">
             <div class="alert alert-info">
                 💡 <strong>提示：</strong>输入你的订阅信息，自动生成正确格式的转换链接
+            </div>
+
+            <!-- URL 解析区域 -->
+            <div class="parse-section">
+                <div class="form-group">
+                    <label for="existingUrl">🔍 解析现有链接（可选）</label>
+                    <textarea id="existingUrl" placeholder="粘贴现有的转换链接，自动提取各参数&#10;例如: http://10.0.0.16:3000/convert?url=http://10.0.1.16:25500/sub?target=clash&url=..."></textarea>
+                    <small>粘贴已有的转换链接，点击解析按钮自动填充下方表单</small>
+                </div>
+                <button type="button" class="btn-parse" onclick="parseExistingUrl()">🔎 解析链接</button>
+            </div>
+
+            <div class="divider">
+                <span>或手动填写</span>
             </div>
 
             <form id="converterForm">
@@ -411,6 +481,7 @@
         function resetForm() {
             document.getElementById('converterForm').reset();
             document.getElementById('resultSection').style.display = 'none';
+            document.getElementById('existingUrl').value = '';
 
             // 重新填充默认值
             const currentHost = window.location.hostname;
@@ -422,6 +493,109 @@
             } else {
                 document.getElementById('converterUrl').value = 'http://localhost:3000';
                 document.getElementById('subconverterUrl').value = 'http://localhost:25500';
+            }
+        }
+
+        function parseExistingUrl() {
+            const existingUrl = document.getElementById('existingUrl').value.trim();
+
+            if (!existingUrl) {
+                alert('❌ 请先粘贴需要解析的链接！');
+                return;
+            }
+
+            try {
+                // 提取 converter 服务地址
+                let converterBase = '';
+                let subconverterUrl = '';
+
+                // 解析 converter URL: http://host:port/convert?url=...
+                const converterMatch = existingUrl.match(/^(https?:\/\/[^\/]+)\/convert\?url=/i);
+                if (converterMatch) {
+                    converterBase = converterMatch[1];
+                    document.getElementById('converterUrl').value = converterBase;
+                }
+
+                // 提取 url 参数后的内容
+                const urlParamStart = existingUrl.indexOf('/convert?url=');
+                if (urlParamStart === -1) {
+                    alert('❌ 无法识别的链接格式！\n请确保是 relay-converter 的转换链接');
+                    return;
+                }
+
+                // 获取 url= 后面的所有内容
+                let encodedSubUrl = existingUrl.substring(urlParamStart + 13);
+
+                // 移除可能的 &format= 参数
+                const formatIndex = encodedSubUrl.indexOf('&format=');
+                if (formatIndex !== -1) {
+                    encodedSubUrl = encodedSubUrl.substring(0, formatIndex);
+                }
+
+                // 解码 subconverter URL
+                let subUrl;
+                try {
+                    subUrl = decodeURIComponent(encodedSubUrl);
+                } catch (e) {
+                    // 可能未编码，直接使用
+                    subUrl = encodedSubUrl;
+                }
+
+                // 解析 subconverter URL: http://host:port/sub?target=clash&url=...&config=...
+                const subMatch = subUrl.match(/^(https?:\/\/[^\/]+)\/sub\?/i);
+                if (subMatch) {
+                    document.getElementById('subconverterUrl').value = subMatch[1];
+                }
+
+                // 从 subconverter URL 提取参数
+                const subUrlObj = new URL(subUrl);
+                const params = subUrlObj.searchParams;
+
+                // 提取订阅地址
+                let subscriptionUrl = params.get('url');
+                if (subscriptionUrl) {
+                    // 尝试解码
+                    try {
+                        subscriptionUrl = decodeURIComponent(subscriptionUrl);
+                    } catch (e) {}
+                    // 将 | 分隔的多个订阅转为换行
+                    subscriptionUrl = subscriptionUrl.split('|').join('\n');
+                    document.getElementById('subscriptionUrl').value = subscriptionUrl;
+                }
+
+                // 提取配置文件地址
+                let configUrl = params.get('config');
+                if (configUrl) {
+                    try {
+                        configUrl = decodeURIComponent(configUrl);
+                    } catch (e) {}
+                    document.getElementById('configUrl').value = configUrl;
+                }
+
+                // 显示成功提示
+                const parseSection = document.querySelector('.parse-section');
+                const existingAlert = parseSection.querySelector('.alert-success');
+                if (existingAlert) {
+                    existingAlert.remove();
+                }
+
+                const successAlert = document.createElement('div');
+                successAlert.className = 'alert alert-success';
+                successAlert.style.marginTop = '15px';
+                successAlert.innerHTML = '✅ <strong>解析成功！</strong>已自动填充下方表单';
+                parseSection.appendChild(successAlert);
+
+                // 3秒后移除提示
+                setTimeout(() => {
+                    successAlert.remove();
+                }, 3000);
+
+                // 滚动到表单
+                document.getElementById('converterForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            } catch (error) {
+                console.error('解析错误:', error);
+                alert('❌ 解析失败！\n' + error.message + '\n\n请检查链接格式是否正确');
             }
         }
     </script>
